@@ -1,0 +1,115 @@
+---
+title: "Мат. моделирование. Упражнение №9"
+author: "Розумнюк А.А."
+date: '26 апреля 2018 г '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Модели SVM
+Данные: Auto {ISLR}
+
+Зависимая переменная: High (high.mpg).
+Объясняющие переменные: displacement, horsepower.
+
+
+# Машина опорных векторов с полиномиальным ядром третьей степени
+
+
+```{r, echo=TRUE}
+library('e1071')     # SVM
+library('ROCR')      # ROC-кривые
+library('ISLR')      # данные по экспрессии генов
+
+# Машина опорных векторов с полиномиальным ядром третьей степени --------------------------------------------
+
+attach(Auto)
+
+# новая переменная
+High <- ifelse(mpg < 23, 'No', 'Yes')
+# присоединяем к таблице данных
+Auto <- data.frame(Auto, High)
+
+# таблица с данными, отклик -- фактор 
+dat <- data.frame(displacement, horsepower, High = as.factor(High))
+plot(displacement, horsepower, col = as.factor(High), pch = 19)
+
+# обучающая выборка
+train <- sample(1:nrow(dat), nrow(dat)/2) 
+
+# SVM с полиномиальным ядром и маленьким cost
+svmfit <- svm(High ~ ., data = dat[train, ], kernel = "polynomial", 
+              gamma = 1, degree = 3, cost = 1)
+plot(svmfit, dat[train, ])
+
+summary(svmfit)
+
+# SVM с полиномиальным ядром и большим cost
+svmfit <- svm(High ~ ., data = dat[train, ], kernel = "polynomial", 
+              gamma = 1, degree = 3, cost = 1e5)
+plot(svmfit, dat[train, ])
+
+# перекрёстная проверка
+tune.out <- tune(svm, High ~ ., data = dat[train, ], kernel = "polynomial", 
+                 ranges = list(cost = c(0.1, 1, 10, 100, 1000), degree = 3,
+                               gamma = c(0.5, 1, 2, 3, 4)))
+summary(tune.out)
+```
+
+Составим матрицу неточностей для лучшей модели.
+
+```{r, echo=TRUE}
+# матрица неточностей для прогноза по лучшей модели
+table(true = dat[-train, "High"], 
+      pred = predict(tune.out$best.model, newdata = dat[-train, ]))
+
+tune.out$best.model
+```
+
+Точность модели не плохая, но не достаточно высокая.
+
+```{r, echo=TRUE}
+# функция построения ROC-кривой: pred -- прогноз, truth -- факт
+rocplot <- function(pred, truth, ...){
+  predob = prediction(pred, truth)
+  perf = performance(predob, "tpr", "fpr")
+  plot(perf,...)}
+
+# последняя оптимальная модель
+svmfit.opt <- svm(High ~ ., data = dat[train, ], 
+                  kernel = "polynomial", gamma = 0.5, degree = 3, cost = 1000, decision.values = T)
+
+# количественные модельные значения, на основе которых присваивается класс
+fitted <- attributes(predict(svmfit.opt, dat[train, ],
+                             decision.values = TRUE))$decision.values
+
+# график для обучающей выборки
+par(mfrow = c(1, 2))
+rocplot(fitted, dat[train, "High"], main = "Training Data")
+
+# более гибкая модель (gamma выше)
+svmfit.flex = svm(High ~ ., data = dat[train, ], kernel = "polynomial", 
+                  gamma = 10, degree = 3, cost = 1000, decision.values = T)
+
+fitted <- attributes(predict(svmfit.flex, dat[train, ], 
+                             decision.values = T))$decision.values
+rocplot(fitted, dat[train,"High"], add = T, col = "red")
+
+# график для тестовой выборки
+fitted <- attributes(predict(svmfit.opt, dat[-train, ], 
+                             decision.values = T))$decision.values
+rocplot(fitted, dat[-train, "High"], main = "Test Data")
+
+fitted <- attributes(predict(svmfit.flex, dat[-train, ], 
+                             decision.values = T))$decision.values
+rocplot(fitted, dat[-train, "High"], add = T, col = "red")
+
+par(mfrow = c(1, 1))
+
+detach(Auto)
+```
+
+ROC-кривые показывают достаточное количество неточных предсказаний. Возможно стоило бы взять больше объясняющих перменных.
